@@ -2,11 +2,13 @@ package datastore
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"sync"
+	"time"
 )
 
 type Segment struct {
@@ -104,6 +106,30 @@ func (seg *Segment) Put(key, value string) error {
 		seg.Offset += int64(n)
 	}
 	return err
+}
+
+func (seg *Segment) Overwrite(oseg *Segment) error {
+	err := os.Truncate(seg.OutName, 0)
+	if err != nil {
+		return err
+	}
+
+	seg.Index = make(hashIndex)
+	seg.Offset = 0
+
+	for key, _ := range oseg.Index {
+		val, err := oseg.Get(key)
+		if err != nil {
+			return err
+		}
+
+		err = seg.Put(key, val)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type OperationData any
@@ -273,16 +299,19 @@ type GetSegmentsFn func() []*Segment
 
 type SegmentsHandler struct {
 	loop                 *Loop
-	SegmentStopWriteSize int64
+	SegmentStopWriteSize *int64
 	CreateSegment        CreateSegmentFn
 	GetSegments          GetSegmentsFn
+	stopTriggerMerge     bool
+	MergeWaitInterval    time.Duration
 }
 
-func NewSegmentsHandler(getSegFn GetSegmentsFn, createSegFn CreateSegmentFn, ssws int64) *SegmentsHandler {
+func NewSegmentsHandler(getSegFn GetSegmentsFn, createSegFn CreateSegmentFn, ssws *int64, mwi time.Duration) *SegmentsHandler {
 	sh := &SegmentsHandler{
 		GetSegments:          getSegFn,
 		CreateSegment:        createSegFn,
 		SegmentStopWriteSize: ssws,
+		MergeWaitInterval:    mwi,
 	}
 
 	sh.loop = &Loop{Handler: sh}
@@ -296,7 +325,7 @@ func (sh *SegmentsHandler) currentSegment() (seg *Segment, err error) {
 	segments := sh.GetSegments()
 	seg = segments[len(segments)-1]
 
-	if seg.Offset > sh.SegmentStopWriteSize {
+	if seg.Offset > *sh.SegmentStopWriteSize {
 		seg, err = sh.CreateSegment()
 	}
 
@@ -339,10 +368,88 @@ func (sh *SegmentsHandler) get(op OperationData) OperationResult {
 	return &OperationGetResult{Val: val, Err: err}
 }
 
+type Buffer struct {
+	buffer bytes.Buffer
+}
+
+func (b *Buffer) Close() error                      { return nil }
+func (b *Buffer) Read(p []byte) (n int, err error)  { return b.buffer.Read(p) }
+func (b *Buffer) Write(p []byte) (n int, err error) { return b.buffer.Write(p) }
+
+// TODO:
+// add buffer copy of segment, and try recover to previous state
+// segment.CreateBufferCopy... maybe
+func (sh *SegmentsHandler) merge(op OperationData) OperationResult {
+	segs := sh.GetSegments()
+
+	for i := len(segs) - 1; i >= 1; i++ {
+		segHP := segs[i]
+		segLP := segs[i-1]
+
+		buff := &Buffer{}
+
+		segM := &Segment{
+			Out:   buff,
+			Index: make(hashIndex),
+		}
+
+		skip := false
+		for key, _ := range segHP.Index {
+			val, err := segHP.Get(key)
+			if err != nil {
+				skip = true
+				break
+			}
+
+			err = segM.Put(key, val)
+			if err != nil {
+				skip = true
+				break
+			}
+		}
+
+		if skip {
+			continue
+		}
+
+		for key, _ := range segLP.Index {
+			_, contains := segM.Index[key]
+			if contains {
+				continue
+			}
+
+			val, err := segLP.Get(key)
+			if err != nil {
+				skip = true
+				break
+			}
+
+			err = segM.Put(key, val)
+			if err != nil {
+				skip = true
+				break
+			}
+		}
+
+		if skip {
+			continue
+		}
+
+		err := segHP.Overwrite(segM)
+		if err != nil {
+			println("got a serious problem")
+			println(err.Error())
+		}
+	}
+
+	return nil
+}
+
 func (sh *SegmentsHandler) OperationHandleFn(Type string) (fn OperationHandleFn, ok bool) {
 	handleFns := map[string]OperationHandleFn{
-		"Get": sh.get,
-		"Put": sh.put,
+		"Get":   sh.get,
+		"Put":   sh.put,
+		"Merge": sh.merge,
 	}
 
 	fn, ok = handleFns[Type]
@@ -402,9 +509,40 @@ func (sh *SegmentsHandler) Put(key, value string) error {
 }
 
 func (sh *SegmentsHandler) Terminate() {
+	sh.StopTriggerMerge()
 	sh.loop.Terminate()
 }
 
 func (sh *SegmentsHandler) Start() {
 	sh.loop.Start()
+	sh.TriggerMerge()
+}
+
+func (sh *SegmentsHandler) TriggerMerge() {
+	go func() {
+		sh.stopTriggerMerge = false
+
+		for range time.Tick(sh.MergeWaitInterval) {
+			if sh.stopTriggerMerge {
+				break
+			}
+
+			op := &Operation{
+				Result: make(chan OperationResult),
+				Type:   "Merge",
+			}
+
+			sh.loop.PostOperation(op)
+
+			res := <-op.Result
+
+			if res != nil {
+				println("expected nil...")
+			}
+		}
+	}()
+}
+
+func (sh *SegmentsHandler) StopTriggerMerge() {
+	sh.stopTriggerMerge = true
 }

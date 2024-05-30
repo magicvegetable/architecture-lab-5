@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 )
 
 const (
@@ -50,16 +51,18 @@ var ErrNotFound = fmt.Errorf("record does not exist")
 type hashIndex map[string]int64
 
 type Db struct {
-	Segments         []*Segment
-	SegmentsDir      string
-	SegmentSizeLimit int64
-	SegmentsHandler  *SegmentsHandler
+	Segments          []*Segment
+	SegmentsDir       string
+	SegmentSizeLimit  int64
+	SegmentsHandler   *SegmentsHandler
+	MergeWaitInterval time.Duration
 }
 
 func NewDb(dir string) (*Db, error) {
 	db := &Db{
-		SegmentsDir:      dir,
-		SegmentSizeLimit: SegmentSizeLimit,
+		SegmentsDir:       dir,
+		SegmentSizeLimit:  SegmentSizeLimit,
+		MergeWaitInterval: time.Second, // TODO: make this
 	}
 
 	err := db.Recover()
@@ -70,7 +73,8 @@ func NewDb(dir string) (*Db, error) {
 	db.SegmentsHandler = NewSegmentsHandler(
 		func() []*Segment { return db.Segments },
 		db.NewSegment,
-		db.SegmentSizeLimit,
+		&db.SegmentSizeLimit,
+		db.MergeWaitInterval,
 	)
 
 	db.SegmentsHandler.Start()
@@ -158,6 +162,7 @@ func (db *Db) Recover() error {
 		if err != io.EOF {
 			return err
 		}
+		println(err)
 
 		db.Segments = append(db.Segments, seg)
 	}
