@@ -1,0 +1,47 @@
+name: architecture-lab-4
+
+networks:
+  servers:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 2001:0DB8::/120
+
+services:
+
+  balancer:
+    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    command: lb
+    networks:
+      - servers
+    ports:
+      - 8090:8090
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+
+  server1:
+    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    networks:
+      - servers
+    expose:
+      - 8080
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+
+  server2:
+    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    networks:
+      - servers
+    expose:
+      - 8080
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+
+  server3:
+    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    networks:
+      - servers
+    expose:
+      - 8080
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0

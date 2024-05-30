@@ -1,0 +1,25 @@
+services:
+  test:
+    build:
+      dockerfile: test.dockerfile
+    networks:
+      - testlan
+    depends_on:
+      - server1
+      - server2
+      - server3
+      - balancer
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+    volumes:
+      - ./fifo:/fifo
+
+  balancer:
+    networks:
+      - testlan
+    command: ["lb", "--trace=true"]
+
+networks:
+  testlan:
