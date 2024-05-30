@@ -1,20 +1,20 @@
 package datastore
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/binary"
-	"fmt"
-	"io"
-	"os"
 	"sync"
+	"io"
+	"fmt"
+	"bufio"
+	"os"
+	"encoding/binary"
+	"bytes"
 	"time"
 )
 
 type Segment struct {
-	Out     io.ReadWriteCloser
-	Offset  int64
-	Index   hashIndex
+	Out io.ReadWriteCloser
+	Offset int64
+	Index hashIndex
 	OutName string
 }
 
@@ -32,7 +32,7 @@ func (seg *Segment) Recover() error {
 	for err == nil {
 		var (
 			header, data []byte
-			n            int
+			n int
 		)
 		header, err = in.Peek(bufSize)
 		if err == io.EOF {
@@ -94,6 +94,12 @@ func (seg *Segment) Get(key string) (string, error) {
 	return value, nil
 }
 
+func (seg *Segment) Delete(key string) (string, error) {
+	val, err := seg.Get(key)
+	delete(seg.Index, key)
+	return val, err
+}
+
 func (seg *Segment) Put(key, value string) error {
 	e := entry{
 		key:   key,
@@ -138,8 +144,10 @@ type OperationGetData struct {
 	Key string
 }
 
+type OperationDeleteData OperationGetData
+
 type OperationPutData struct {
-	Key   string
+	Key string
 	Value string
 }
 
@@ -163,6 +171,18 @@ func (oer *OperationErrorResult) IsValid() (bool, error) {
 
 type OperationPutResult OperationErrorResult
 
+type OperationDeleteResult struct {
+	Val string
+	Err error
+}
+
+func (odr *OperationDeleteResult) IsValid() (bool, error) {
+	if odr.Err != nil {
+		return true, nil
+	}
+	return false, odr.Err
+}
+
 type OperationGetResult struct {
 	Val string
 	Err error
@@ -176,14 +196,14 @@ func (sgr *OperationGetResult) IsValid() (bool, error) {
 }
 
 type Operation struct {
-	Data   OperationData
+	Data OperationData
 	Result chan OperationResult
-	Type   string
+	Type string
 }
 
 type queueElement struct {
 	value *Operation
-	next  *queueElement
+	next *queueElement
 }
 
 type operationQueue struct {
@@ -227,7 +247,7 @@ func (q *operationQueue) Pull() *Operation {
 		q.blocked = make(chan struct{})
 		q.m.Unlock()
 
-		<-q.blocked
+		<- q.blocked
 		q.m.Lock()
 
 		if q.terminate {
@@ -245,9 +265,9 @@ type Handler interface {
 }
 
 type Loop struct {
-	queue      operationQueue
+	queue operationQueue
 	terminated chan struct{}
-	Handler    Handler
+	Handler Handler
 }
 
 func (l *Loop) Start() {
@@ -281,7 +301,7 @@ func (l *Loop) Terminate() {
 
 	l.queue.m.Unlock()
 
-	<-l.terminated
+	<- l.terminated
 }
 
 func (l *Loop) PostOperation(op *Operation) {
@@ -298,20 +318,20 @@ type CreateSegmentFn func() (*Segment, error)
 type GetSegmentsFn func() []*Segment
 
 type SegmentsHandler struct {
-	loop                 *Loop
+	loop *Loop 
 	SegmentStopWriteSize *int64
-	CreateSegment        CreateSegmentFn
-	GetSegments          GetSegmentsFn
-	stopTriggerMerge     bool
-	MergeWaitInterval    time.Duration
+	CreateSegment CreateSegmentFn
+	GetSegments GetSegmentsFn
+	stopTriggerMerge bool
+	MergeWaitInterval time.Duration
 }
 
 func NewSegmentsHandler(getSegFn GetSegmentsFn, createSegFn CreateSegmentFn, ssws *int64, mwi time.Duration) *SegmentsHandler {
 	sh := &SegmentsHandler{
-		GetSegments:          getSegFn,
-		CreateSegment:        createSegFn,
+		GetSegments: getSegFn,
+		CreateSegment: createSegFn,
 		SegmentStopWriteSize: ssws,
-		MergeWaitInterval:    mwi,
+		MergeWaitInterval: mwi,
 	}
 
 	sh.loop = &Loop{Handler: sh}
@@ -323,7 +343,7 @@ type OperationHandleFn func(OperationData) OperationResult
 
 func (sh *SegmentsHandler) currentSegment() (seg *Segment, err error) {
 	segments := sh.GetSegments()
-	seg = segments[len(segments)-1]
+	seg = segments[len(segments) - 1]
 
 	if seg.Offset > *sh.SegmentStopWriteSize {
 		seg, err = sh.CreateSegment()
@@ -344,6 +364,38 @@ func (sh *SegmentsHandler) put(op OperationData) OperationResult {
 	err = seg.Put(data.Key, data.Value)
 
 	return &OperationPutResult{Err: err}
+}
+
+func (sh *SegmentsHandler) delete(op OperationData) OperationResult {
+	data := op.(*OperationDeleteData)
+
+	var (
+		val string
+		err error
+	)
+
+	key := data.Key
+	segments := sh.GetSegments()
+	found := false
+	for i := 0; i <= len(segments); i++ {
+		seg := segments[i]
+		sval, err := seg.Delete(key)
+
+		if err != ErrNotFound && err != nil {
+			break
+		}
+
+		if err != ErrNotFound {
+			found = true
+			val = sval
+		}
+	}
+
+	if found && err == ErrNotFound {
+		err = nil
+	}
+
+	return &OperationDeleteResult{Val: val, Err: err}
 }
 
 func (sh *SegmentsHandler) get(op OperationData) OperationResult {
@@ -372,8 +424,8 @@ type Buffer struct {
 	buffer bytes.Buffer
 }
 
-func (b *Buffer) Close() error                      { return nil }
-func (b *Buffer) Read(p []byte) (n int, err error)  { return b.buffer.Read(p) }
+func (b *Buffer) Close() error { return nil }
+func (b *Buffer) Read(p []byte) (n int, err error) { return b.buffer.Read(p) }
 func (b *Buffer) Write(p []byte) (n int, err error) { return b.buffer.Write(p) }
 
 // TODO:
@@ -384,12 +436,12 @@ func (sh *SegmentsHandler) merge(op OperationData) OperationResult {
 
 	for i := len(segs) - 1; i >= 1; i++ {
 		segHP := segs[i]
-		segLP := segs[i-1]
+		segLP := segs[i - 1]
 
 		buff := &Buffer{}
 
 		segM := &Segment{
-			Out:   buff,
+			Out: buff,
 			Index: make(hashIndex),
 		}
 
@@ -447,13 +499,14 @@ func (sh *SegmentsHandler) merge(op OperationData) OperationResult {
 
 func (sh *SegmentsHandler) OperationHandleFn(Type string) (fn OperationHandleFn, ok bool) {
 	handleFns := map[string]OperationHandleFn{
-		"Get":   sh.get,
-		"Put":   sh.put,
+		"Get": sh.get,
+		"Put": sh.put,
 		"Merge": sh.merge,
+		"Delete": sh.delete,
 	}
 
 	fn, ok = handleFns[Type]
-	return
+	return 
 }
 
 func (sh *SegmentsHandler) Handle(op *Operation) {
@@ -482,13 +535,13 @@ func (sh *SegmentsHandler) Handle(op *Operation) {
 
 func (sh *SegmentsHandler) Get(key string) (value string, err error) {
 	op := &Operation{
-		Data:   &OperationGetData{Key: key},
+		Data: &OperationGetData{Key: key},
 		Result: make(chan OperationResult),
-		Type:   "Get",
+		Type: "Get",
 	}
 	sh.loop.PostOperation(op)
 
-	res := <-op.Result
+	res := <- op.Result
 
 	resA := res.(*OperationGetResult)
 	return resA.Val, resA.Err
@@ -496,16 +549,35 @@ func (sh *SegmentsHandler) Get(key string) (value string, err error) {
 
 func (sh *SegmentsHandler) Put(key, value string) error {
 	op := &Operation{
-		Data:   &OperationPutData{Key: key, Value: value},
+		Data: &OperationPutData{Key: key, Value: value},
 		Result: make(chan OperationResult),
-		Type:   "Put",
+		Type: "Put",
 	}
 	sh.loop.PostOperation(op)
 
-	res := <-op.Result
+	res := <- op.Result
 
 	resA := res.(*OperationPutResult)
 	return resA.Err
+}
+
+func (sh *SegmentsHandler) Delete(key, value string) (string, error) {
+	op := &Operation{
+		Data: &OperationDeleteData{Key: key},
+		Result: make(chan OperationResult),
+		Type: "Delete",
+	}
+	sh.loop.PostOperation(op)
+
+	res := <- op.Result
+
+	if res != nil {
+		println("Unexpected res:", res, "\nExpected: nil\n")
+	}
+
+	resA := res.(*OperationDeleteResult)
+
+	return resA.Val, resA.Err
 }
 
 func (sh *SegmentsHandler) Terminate() {
@@ -524,17 +596,17 @@ func (sh *SegmentsHandler) TriggerMerge() {
 
 		for range time.Tick(sh.MergeWaitInterval) {
 			if sh.stopTriggerMerge {
-				break
+				break;
 			}
 
 			op := &Operation{
 				Result: make(chan OperationResult),
-				Type:   "Merge",
+				Type: "Merge",
 			}
 
 			sh.loop.PostOperation(op)
 
-			res := <-op.Result
+			res := <- op.Result
 
 			if res != nil {
 				println("expected nil...")
@@ -546,3 +618,4 @@ func (sh *SegmentsHandler) TriggerMerge() {
 func (sh *SegmentsHandler) StopTriggerMerge() {
 	sh.stopTriggerMerge = true
 }
+
