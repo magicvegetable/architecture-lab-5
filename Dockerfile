@@ -1,7 +1,7 @@
 FROM golang:1.22 as build
 
 WORKDIR /go/src/practice-4
-COPY ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab .
+COPY . .
 
 RUN go test ./...
 ENV CGO_ENABLED=0

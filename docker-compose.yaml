@@ -10,7 +10,7 @@ networks:
 services:
 
   balancer:
-    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    build: .
     command: lb
     networks:
       - servers
@@ -20,7 +20,7 @@ services:
       - net.ipv6.conf.all.disable_ipv6=0
 
   server1:
-    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    build: .
     networks:
       - servers
     expose:
@@ -29,7 +29,7 @@ services:
       - net.ipv6.conf.all.disable_ipv6=0
 
   server2:
-    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    build: .
     networks:
       - servers
     expose:
@@ -38,7 +38,7 @@ services:
       - net.ipv6.conf.all.disable_ipv6=0
 
   server3:
-    build: ../../Desktop/silver-fiesta-last-in-4-lab/silver-fiesta-last-in-4-lab
+    build: .
     networks:
       - servers
     expose:
