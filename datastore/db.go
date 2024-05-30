@@ -1,20 +1,22 @@
 package datastore
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"bytes"
 	"time"
+	"slices"
 )
 
 const (
-	outFileName      = "current-data"
-	SegmentSizeLimit = 500
-	headerSize       = 4
-	SegmentFilePerm  = os.FileMode(0o600)
+	outFileName = "current-data"
+	headerSize = 4
+	SegmentFilePerm = os.FileMode(0o600)
+	DefaultMergeWaitInterval = time.Second
+	DefaultSegmentSizeLimit = 500
 )
 
 type CustomReadWriteCloser struct {
@@ -51,18 +53,18 @@ var ErrNotFound = fmt.Errorf("record does not exist")
 type hashIndex map[string]int64
 
 type Db struct {
-	Segments          []*Segment
-	SegmentsDir       string
-	SegmentSizeLimit  int64
-	SegmentsHandler   *SegmentsHandler
+	Segments []*Segment
+	SegmentsDir string
+	SegmentSizeLimit int64
+	SegmentsHandler *SegmentsHandler
 	MergeWaitInterval time.Duration
 }
 
-func NewDb(dir string) (*Db, error) {
+func NewDbFull(dir string, mwi time.Duration, ssl int64) (*Db, error) {
 	db := &Db{
-		SegmentsDir:       dir,
-		SegmentSizeLimit:  SegmentSizeLimit,
-		MergeWaitInterval: time.Second, // TODO: make this
+		SegmentsDir: dir,
+		SegmentSizeLimit: ssl,
+		MergeWaitInterval: mwi,
 	}
 
 	err := db.Recover()
@@ -75,11 +77,16 @@ func NewDb(dir string) (*Db, error) {
 		db.NewSegment,
 		&db.SegmentSizeLimit,
 		db.MergeWaitInterval,
+		db.ExcludeSegment,
 	)
 
 	db.SegmentsHandler.Start()
 
 	return db, nil
+}
+
+func NewDb(dir string) (*Db, error) {
+	return NewDbFull(dir, DefaultMergeWaitInterval, DefaultSegmentSizeLimit)
 }
 
 func (db *Db) NewSegment() (*Segment, error) {
@@ -91,9 +98,15 @@ func (db *Db) NewSegment() (*Segment, error) {
 		return nil, err
 	}
 
+	fr, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+
 	seg := &Segment{
-		Out:     f,
-		Index:   make(hashIndex),
+		Out: f,
+		In: fr,
+		Index: make(hashIndex),
 		OutName: f.Name(),
 	}
 
@@ -113,9 +126,9 @@ func (db *Db) GetSegment() (*Segment, error) {
 		return db.NewSegment()
 	}
 
-	last := db.Segments[len(db.Segments)-1]
+	last := db.Segments[len(db.Segments) - 1]
 
-	OnLimit, err := FileOnLimit(last.OutName, SegmentSizeLimit)
+	OnLimit, err := FileOnLimit(last.OutName, db.SegmentSizeLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -149,10 +162,19 @@ func (db *Db) Recover() error {
 		fullName := filepath.Join(db.SegmentsDir, name)
 
 		segF, err := os.OpenFile(fullName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+		if err != nil {
+			return err
+		}
+
+		segRF, err := os.Open(fullName)
+		if err != nil {
+			return err
+		}
 
 		seg := &Segment{
-			Out:     segF,
-			Index:   make(hashIndex),
+			Out: segF,
+			In: segRF,
+			Index: make(hashIndex),
 			OutName: segF.Name(),
 		}
 
@@ -162,7 +184,6 @@ func (db *Db) Recover() error {
 		if err != io.EOF {
 			return err
 		}
-		println(err)
 
 		db.Segments = append(db.Segments, seg)
 	}
@@ -171,7 +192,9 @@ func (db *Db) Recover() error {
 }
 
 func (db *Db) Close() error {
+	fmt.Println("close", db)
 	db.SegmentsHandler.Terminate()
+	fmt.Println("close after Terminate", db)
 
 	for _, seg := range db.Segments {
 		err := seg.Out.Close()
@@ -190,4 +213,20 @@ func (db *Db) Get(key string) (string, error) {
 
 func (db *Db) Put(key, value string) error {
 	return db.SegmentsHandler.Put(key, value)
+}
+
+func (db *Db) Delete(key string) (string, error) {
+	return db.SegmentsHandler.Delete(key)
+}
+
+func (db *Db) ExcludeSegment(seg *Segment) error {
+	i := slices.Index(db.Segments, seg)
+	if i == -1 {
+		return nil
+	}
+
+	after := db.Segments[i + 1:]
+	db.Segments = append(db.Segments[:i], after...)
+
+	return os.Remove(seg.OutName)
 }

@@ -13,6 +13,7 @@ import (
 
 type Segment struct {
 	Out io.ReadWriteCloser
+	In io.ReadSeekCloser
 	Offset int64
 	Index hashIndex
 	OutName string
@@ -75,18 +76,12 @@ func (seg *Segment) Get(key string) (string, error) {
 		return "", ErrNotFound
 	}
 
-	file, err := os.Open(seg.OutName)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	_, err = file.Seek(position, 0)
+	_, err := seg.In.Seek(position, 0)
 	if err != nil {
 		return "", err
 	}
 
-	reader := bufio.NewReader(file)
+	reader := bufio.NewReader(seg.In)
 	value, err := readValue(reader)
 	if err != nil {
 		return "", err
@@ -318,20 +313,31 @@ type CreateSegmentFn func() (*Segment, error)
 type GetSegmentsFn func() []*Segment
 
 type SegmentsHandler struct {
-	loop *Loop 
+	loop *Loop
+	stopTriggerMerge bool
+
 	SegmentStopWriteSize *int64
+	MergeWaitInterval time.Duration
+	ForceMerge bool
+
 	CreateSegment CreateSegmentFn
 	GetSegments GetSegmentsFn
-	stopTriggerMerge bool
-	MergeWaitInterval time.Duration
+	ExcludeSegment func(*Segment) error
 }
 
-func NewSegmentsHandler(getSegFn GetSegmentsFn, createSegFn CreateSegmentFn, ssws *int64, mwi time.Duration) *SegmentsHandler {
+func NewSegmentsHandler(
+	getSegFn GetSegmentsFn,
+	createSegFn CreateSegmentFn,
+	ssws *int64,
+	mwi time.Duration,
+	es func(*Segment) error,
+) *SegmentsHandler {
 	sh := &SegmentsHandler{
 		GetSegments: getSegFn,
 		CreateSegment: createSegFn,
 		SegmentStopWriteSize: ssws,
 		MergeWaitInterval: mwi,
+		ExcludeSegment: es,
 	}
 
 	sh.loop = &Loop{Handler: sh}
@@ -345,7 +351,7 @@ func (sh *SegmentsHandler) currentSegment() (seg *Segment, err error) {
 	segments := sh.GetSegments()
 	seg = segments[len(segments) - 1]
 
-	if seg.Offset > *sh.SegmentStopWriteSize {
+	if seg.Offset >= *sh.SegmentStopWriteSize {
 		seg, err = sh.CreateSegment()
 	}
 
@@ -371,15 +377,15 @@ func (sh *SegmentsHandler) delete(op OperationData) OperationResult {
 
 	var (
 		val string
+		sval string
 		err error
 	)
 
 	key := data.Key
 	segments := sh.GetSegments()
 	found := false
-	for i := 0; i <= len(segments); i++ {
-		seg := segments[i]
-		sval, err := seg.Delete(key)
+	for _, seg := range segments {
+		sval, err = seg.Delete(key)
 
 		if err != ErrNotFound && err != nil {
 			break
@@ -393,6 +399,10 @@ func (sh *SegmentsHandler) delete(op OperationData) OperationResult {
 
 	if found && err == ErrNotFound {
 		err = nil
+	}
+
+	if found {
+		sh.ForceMerge = true
 	}
 
 	return &OperationDeleteResult{Val: val, Err: err}
@@ -420,13 +430,35 @@ func (sh *SegmentsHandler) get(op OperationData) OperationResult {
 	return &OperationGetResult{Val: val, Err: err}
 }
 
+type Reader struct {
+	reader *bytes.Reader
+}
+
+func (r *Reader) Close() error { return nil }
+func (r *Reader) Seek(offset int64, whence int) (int64, error) {
+	return r.reader.Seek(offset, whence)
+}
+func (r *Reader) Read(p []byte) (n int, err error) { return r.reader.Read(p) }
+
 type Buffer struct {
 	buffer bytes.Buffer
 }
 
 func (b *Buffer) Close() error { return nil }
+func (b *Buffer) GetReader() *Reader {
+	arr := b.buffer.Bytes()
+	_, err := b.buffer.Write(arr)
+
+	if err != nil {
+		return nil
+	}
+
+	reader := bytes.NewReader(arr)
+	return &Reader{reader: reader}
+}
 func (b *Buffer) Read(p []byte) (n int, err error) { return b.buffer.Read(p) }
 func (b *Buffer) Write(p []byte) (n int, err error) { return b.buffer.Write(p) }
+
 
 // TODO:
 // add buffer copy of segment, and try recover to previous state
@@ -434,7 +466,17 @@ func (b *Buffer) Write(p []byte) (n int, err error) { return b.buffer.Write(p) }
 func (sh *SegmentsHandler) merge(op OperationData) OperationResult {
 	segs := sh.GetSegments()
 
-	for i := len(segs) - 1; i >= 1; i++ {
+	segLastI := len(segs) - 1
+	if segLastI == 0 && sh.ForceMerge {
+		err := segs[0].Overwrite(segs[0])
+
+		if err != nil {
+			fmt.Println("got a serious problem")
+			fmt.Println(err)
+		}
+	}
+
+	for i := segLastI; i >= 1; i-- {
 		segHP := segs[i]
 		segLP := segs[i - 1]
 
@@ -487,13 +529,25 @@ func (sh *SegmentsHandler) merge(op OperationData) OperationResult {
 			continue
 		}
 
-		err := segHP.Overwrite(segM)
+		segM.In = buff.GetReader()
+
+		err := segLP.Overwrite(segM)
 		if err != nil {
-			println("got a serious problem")
-			println(err.Error())
+			fmt.Println("got a serious problem")
+			fmt.Println(err)
+		}
+
+		err = sh.ExcludeSegment(segHP)
+		if err != nil {
+			fmt.Println("got a serious problem")
+			fmt.Println(err)
 		}
 	}
 
+	if sh.ForceMerge {
+		sh.ForceMerge = false
+	}
+	
 	return nil
 }
 
@@ -561,7 +615,7 @@ func (sh *SegmentsHandler) Put(key, value string) error {
 	return resA.Err
 }
 
-func (sh *SegmentsHandler) Delete(key, value string) (string, error) {
+func (sh *SegmentsHandler) Delete(key string) (string, error) {
 	op := &Operation{
 		Data: &OperationDeleteData{Key: key},
 		Result: make(chan OperationResult),
@@ -571,17 +625,29 @@ func (sh *SegmentsHandler) Delete(key, value string) (string, error) {
 
 	res := <- op.Result
 
-	if res != nil {
-		println("Unexpected res:", res, "\nExpected: nil\n")
-	}
-
 	resA := res.(*OperationDeleteResult)
 
 	return resA.Val, resA.Err
 }
 
+func (sh *SegmentsHandler) Sync() {
+	op := &Operation{
+		Result: make(chan OperationResult),
+		Type: "Merge",
+	}
+
+	sh.loop.PostOperation(op)
+
+	res := <- op.Result
+
+	if res != nil {
+		fmt.Println("expected nil...")
+	}
+}
+
 func (sh *SegmentsHandler) Terminate() {
 	sh.StopTriggerMerge()
+	sh.Sync()
 	sh.loop.Terminate()
 }
 
@@ -591,26 +657,14 @@ func (sh *SegmentsHandler) Start() {
 }
 
 func (sh *SegmentsHandler) TriggerMerge() {
-	go func() {
-		sh.stopTriggerMerge = false
+	sh.stopTriggerMerge = false
 
+	go func() {
 		for range time.Tick(sh.MergeWaitInterval) {
 			if sh.stopTriggerMerge {
-				break;
+				return
 			}
-
-			op := &Operation{
-				Result: make(chan OperationResult),
-				Type: "Merge",
-			}
-
-			sh.loop.PostOperation(op)
-
-			res := <- op.Result
-
-			if res != nil {
-				println("expected nil...")
-			}
+			sh.Sync()
 		}
 	}()
 }
