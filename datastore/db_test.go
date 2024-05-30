@@ -25,8 +25,12 @@ func TestDb_Put(t *testing.T) {
 		{"key2", "value2"},
 		{"key3", "value3"},
 	}
+	_, err = db.NewSegment()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	outFile, err := os.Open(filepath.Join(dir, outFileName))
+	outFile, err := os.Open(filepath.Join(dir, outFileName+"-0"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +85,7 @@ func TestDb_Put(t *testing.T) {
 		for _, pair := range pairs {
 			value, err := db.Get(pair[0])
 			if err != nil {
-				t.Errorf("Cannot put %s: %s", pairs[0], err)
+				t.Errorf("Cannot get %s: %s", pairs[0], err)
 			}
 			if value != pair[1] {
 				t.Errorf("Bad value returned expected %s, got %s", pair[1], value)

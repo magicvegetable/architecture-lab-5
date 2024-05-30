@@ -14,3 +14,4 @@ ENV UNIT_TEST=1
 COPY --from=build /app/lb.test /app
 
 CMD ["./lb.test"]
+
