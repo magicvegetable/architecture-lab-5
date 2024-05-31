@@ -24,7 +24,10 @@ import (
 // add to ../server/server.go
 // redirect via GET /api/v1/some-data?key=<cmd> -> GET /dev/<key>
 
-var port = flag.Int("port", 8080, "server port")
+var (
+	port = flag.Int("port", 8070, "server port")
+	DbDir = flag.String("dbdir", "", "db store directory")
+)
 
 const (
 	confResponseDelaySec = "CONF_RESPONSE_DELAY_SEC"
@@ -33,11 +36,22 @@ const (
 )
 
 func main() {
-	dir, err := ioutil.TempDir("", "test-db")
-	if err != nil {
-		panic(err)
+	flag.Parse()
+	var (
+		dir string
+		err error
+	)
+
+	if *DbDir == "" {
+		dir, err = ioutil.TempDir("", "test-db")
+		if err != nil {
+			panic(err)
+		}
+		defer os.RemoveAll(dir)
+	} else {
+		dir = *DbDir
+		fmt.Println("fmt...", dir)
 	}
-	defer os.RemoveAll(dir)
 
 	db, err := datastore.NewDb(dir)
 	if err != nil {
@@ -73,7 +87,7 @@ func main() {
 				return
 			}
 
-			rw.Header().Set("content-type", "application/json")
+			rw.Header().Set("Content-Type", "application/json")
 			rw.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(rw).Encode(map[string]string{
 				key: value,
@@ -89,6 +103,7 @@ func main() {
 			if err != nil {
 				fmt.Println(err)
 				rw.WriteHeader(http.StatusBadRequest)
+				_, _ = rw.Write([]byte("400 bad request"))
 				return
 			}
 
@@ -96,6 +111,7 @@ func main() {
 			if !ok {
 				fmt.Println(reqM)
 				rw.WriteHeader(http.StatusBadRequest)
+				_, _ = rw.Write([]byte("400 bad request"))
 				return
 			}
 
@@ -103,6 +119,7 @@ func main() {
 			if err != nil {
 				fmt.Println(err)
 				rw.WriteHeader(http.StatusInternalServerError)
+				_, _ = rw.Write([]byte("500 internal server error"))
 				return
 			}
 
@@ -114,7 +131,8 @@ func main() {
 			return
 		}
 
-		rw.WriteHeader(http.StatusOK)
+		rw.WriteHeader(http.StatusBadRequest)
+		_, _ = rw.Write([]byte("400 bad request"))
 	})
 
 	server := httptools.CreateServer(*port, h)
