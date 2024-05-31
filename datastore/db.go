@@ -192,9 +192,7 @@ func (db *Db) Recover() error {
 }
 
 func (db *Db) Close() error {
-	fmt.Println("close", db)
 	db.SegmentsHandler.Terminate()
-	fmt.Println("close after Terminate", db)
 
 	for _, seg := range db.Segments {
 		err := seg.Out.Close()

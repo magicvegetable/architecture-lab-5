@@ -349,6 +349,10 @@ type OperationHandleFn func(OperationData) OperationResult
 
 func (sh *SegmentsHandler) currentSegment() (seg *Segment, err error) {
 	segments := sh.GetSegments()
+	if len(segments) == 0 {
+		return sh.CreateSegment()
+	}
+
 	seg = segments[len(segments) - 1]
 
 	if seg.Offset >= *sh.SegmentStopWriteSize {
