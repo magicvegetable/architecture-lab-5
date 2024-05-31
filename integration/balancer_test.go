@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +14,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"encoding/json"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -270,7 +272,6 @@ func balancerHttpGetTest(t *testing.T) {
 			}
 
 			lbfrom, err := GetLbfrom(url, connection)
-
 			if err != nil {
 				err = FormatError(err, "GetLbfrom(%#v, %#v)", url, connection)
 				panic(err)
@@ -280,7 +281,6 @@ func balancerHttpGetTest(t *testing.T) {
 			t.Run("address: "+addr, func(t *testing.T) {
 				for i := 0; i < HttpBalancerChecksPerTestAmount; i++ {
 					nextLbfrom, err := GetLbfrom(url, connection)
-
 					if err != nil {
 						err = FormatError(err, "GetLbfrom(%v, %v)", url, connection)
 						panic(err)
@@ -305,6 +305,27 @@ func balancerHttpGetTest(t *testing.T) {
 	}
 
 	<-wait
+}
+
+const TeamName = "phantoms"
+
+func TestBalancerHttpDbGetTest(t *testing.T) {
+	if _, exists := os.LookupEnv("INTEGRATION_TEST"); !exists {
+		t.Skip("Integration test is not enabled")
+	}
+
+	reqURL := BaseAddress + "/api/v1/some-data?key=" + TeamName
+	resp, err := http.Get(reqURL)
+	assert.Nil(t, err, "no error for get")
+
+	resM := make(map[string]string)
+	err = json.NewDecoder(resp.Body).Decode(&resM)
+	resp.Body.Close()
+	assert.Nil(t, err, "no error for decode")
+
+	value, ok := resM[TeamName]
+	assert.True(t, ok, "have value under command name")
+	assert.NotEqual(t, value, "", "value isn't empty")
 }
 
 func BenchmarkBalancer(b *testing.B) {
