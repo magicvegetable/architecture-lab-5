@@ -307,25 +307,43 @@ func balancerHttpGetTest(t *testing.T) {
 	<-wait
 }
 
-const TeamName = "phantoms"
+const (
+	TeamName    = "phantoms"
+	NoResultKey = "000000000000"
+)
 
 func TestBalancerHttpDbGetTest(t *testing.T) {
 	if _, exists := os.LookupEnv("INTEGRATION_TEST"); !exists {
 		t.Skip("Integration test is not enabled")
 	}
 
-	reqURL := BaseAddress + "/api/v1/some-data?key=" + TeamName
-	resp, err := http.Get(reqURL)
-	assert.Nil(t, err, "no error for get")
+	t.Run("GET data from db with result", func(t *testing.T) {
+		reqURL := BaseAddress + "/api/v1/some-data?key=" + TeamName
+		resp, err := http.Get(reqURL)
+		assert.Nil(t, err, "no error for get")
 
-	resM := make(map[string]string)
-	err = json.NewDecoder(resp.Body).Decode(&resM)
-	resp.Body.Close()
-	assert.Nil(t, err, "no error for decode")
+		resM := make(map[string]string)
+		err = json.NewDecoder(resp.Body).Decode(&resM)
+		resp.Body.Close()
+		assert.Nil(t, err, "no error for decode")
 
-	value, ok := resM[TeamName]
-	assert.True(t, ok, "have value under command name")
-	assert.NotEqual(t, value, "", "value isn't empty")
+		value, ok := resM[TeamName]
+		assert.True(t, ok, "have value under command name")
+		assert.NotEqual(t, value, "", "value isn't empty")
+	})
+
+	t.Run("GET data from db without result", func(t *testing.T) {
+		reqURL := BaseAddress + "/api/v1/some-data?key=" + NoResultKey
+		resp, err := http.Get(reqURL)
+		assert.Nil(t, err, "no error for get")
+
+		body, err := io.ReadAll(resp.Body)
+		assert.Nil(t, err, "no error for read")
+
+		resp.Body.Close()
+		assert.Equal(t, len(body), 0, "empty body in return")
+		assert.Equal(t, resp.StatusCode, http.StatusNotFound, "empty body in return")
+	})
 }
 
 func BenchmarkBalancer(b *testing.B) {
