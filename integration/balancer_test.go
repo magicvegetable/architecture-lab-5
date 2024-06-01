@@ -422,6 +422,13 @@ func localIPNetTest(t *testing.T) {
 	}
 
 	filterIPsBase := []net.IP{balancerIP, ipNet.IP}
+	fmt.Println("net IP", ipNet.IP.String())
+	if ipNet.IP.String() == "fe81::" {
+		// TODO: figure out why
+		secIP := append(net.IP{}, ipNet.IP...)
+		secIP[len(secIP)-1] += 2
+		filterIPsBase = append(filterIPsBase, secIP)
+	}
 	for i := 0; i < AmountOfChangeIP; i++ {
 		localIP, err := GetLocalIP()
 

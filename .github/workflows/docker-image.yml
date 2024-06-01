@@ -26,6 +26,9 @@ jobs:
     - name: Run test network manager
       run:  ./manager &
 
+    - name: Set exec permission
+      run: chmod +x entry.sh
+
     - name: Run integration test
       run: docker compose -f docker-compose.yaml -f docker-compose.test.yaml up --build --force-recreate --exit-code-from test
 
