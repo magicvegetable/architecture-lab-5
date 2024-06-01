@@ -3,26 +3,26 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
-	"time"
-	"fmt"
-	"io"
 	"strings"
+	"time"
 
-	"github.com/magicvegetable/architecture-lab-4/httptools"
-	"github.com/magicvegetable/architecture-lab-4/signal"
+	"github.com/magicvegetable/architecture-lab-5/httptools"
+	"github.com/magicvegetable/architecture-lab-5/signal"
 )
 
 var (
-	port = flag.Int("port", 8080, "server port")
+	port       = flag.Int("port", 8080, "server port")
 	dbAddrHost = flag.String("db-addr-base", "localhost:8070", "db host addr")
 )
 
 const (
 	confResponseDelaySec = "CONF_RESPONSE_DELAY_SEC"
-	confHealthFailure = "CONF_HEALTH_FAILURE"
+	confHealthFailure    = "CONF_HEALTH_FAILURE"
 )
 
 func main() {

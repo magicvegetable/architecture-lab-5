@@ -1,9 +1,10 @@
 package integration
 
-import . "github.com/magicvegetable/architecture-lab-4/err"
+import . "github.com/magicvegetable/architecture-lab-5/err"
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +15,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"encoding/json"
 
 	"github.com/stretchr/testify/assert"
 )

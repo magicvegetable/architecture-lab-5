@@ -10,7 +10,7 @@ import (
 	"slices"
 )
 
-import . "github.com/magicvegetable/architecture-lab-4/err"
+import . "github.com/magicvegetable/architecture-lab-5/err"
 
 var (
 	CurrentNetwork = ""

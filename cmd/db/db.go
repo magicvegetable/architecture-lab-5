@@ -3,36 +3,27 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
-	"fmt"
 	"strings"
-	"io/ioutil"
 
-	// "strconv"
 	"time"
 
-	"github.com/magicvegetable/architecture-lab-4/httptools"
-	"github.com/magicvegetable/architecture-lab-4/signal"
-	"github.com/magicvegetable/architecture-lab-4/datastore"
+	"github.com/magicvegetable/architecture-lab-5/datastore"
+	"github.com/magicvegetable/architecture-lab-5/httptools"
+	"github.com/magicvegetable/architecture-lab-5/signal"
 )
 
-// TODO:
-// http server
-// handle [GET, POST] /db/<key>
-// 
-// add to ../server/server.go
-// redirect via GET /api/v1/some-data?key=<cmd> -> GET /dev/<key>
-
 var (
-	port = flag.Int("port", 8070, "server port")
-	DbDir = flag.String("dbdir", "", "db store directory")
+	port  = flag.Int("port", 8070, "server port")
+	DbDir = flag.String("db-dir", "", "db store directory")
 )
 
 const (
 	confResponseDelaySec = "CONF_RESPONSE_DELAY_SEC"
-	confHealthFailure = "CONF_HEALTH_FAILURE"
-	TeamName = "phantoms"
+	confHealthFailure    = "CONF_HEALTH_FAILURE"
+	TeamName             = "phantoms"
 )
 
 func main() {
@@ -43,14 +34,13 @@ func main() {
 	)
 
 	if *DbDir == "" {
-		dir, err = ioutil.TempDir("", "test-db")
+		dir, err = os.MkdirTemp("", "test-db")
 		if err != nil {
 			panic(err)
 		}
 		defer os.RemoveAll(dir)
 	} else {
 		dir = *DbDir
-		fmt.Println("fmt...", dir)
 	}
 
 	db, err := datastore.NewDb(dir)

@@ -1,12 +1,11 @@
 package datastore
 
 import (
-	"io/ioutil"
+	"fmt"
 	"os"
 	"path/filepath"
-	"testing"
-	"fmt"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -46,7 +45,7 @@ func deleteNothingTest(db *Db, pair []string, t *testing.T) {
 }
 
 func TestDb_Put(t *testing.T) {
-	dir, err := ioutil.TempDir("", "test-db")
+	dir, err := os.MkdirTemp("", "test-db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +58,7 @@ func TestDb_Put(t *testing.T) {
 	// NOTE: don't use defer db.Close()
 	// or crazy things could happen
 
-	pairs := [][]string {
+	pairs := [][]string{
 		{"key1", "value1"},
 		{"key2", "value2"},
 		{"key3", "value3"},
@@ -69,7 +68,7 @@ func TestDb_Put(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	outFile, err := os.Open(filepath.Join(dir, outFileName + "-0"))
+	outFile, err := os.Open(filepath.Join(dir, outFileName+"-0"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +97,7 @@ func TestDb_Put(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if size1 * 2 != outInfo.Size() {
+		if size1*2 != outInfo.Size() {
 			t.Errorf("Unexpected size (%d vs %d)", size1, outInfo.Size())
 		}
 	})
@@ -123,7 +122,8 @@ func TestDb_Put(t *testing.T) {
 		}
 	})
 
-	waitTime := 80 * time.Millisecond
+	// NOTE: be careful with printf...
+	waitTime := 160 * time.Millisecond
 	t.Run("merge", func(t *testing.T) {
 		if err := db.Close(); err != nil {
 			t.Fatal(err)
@@ -135,7 +135,7 @@ func TestDb_Put(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for i := 0; i < filesAmount - 1; i++ {
+		for i := 0; i < filesAmount-1; i++ {
 			for _, pair := range pairs {
 				err := db.Put(pair[0], pair[1])
 				if err != nil {
@@ -156,7 +156,7 @@ func TestDb_Put(t *testing.T) {
 				filesAmount,
 			)
 		}
-		time.Sleep(waitTime + 80 * time.Millisecond)
+		time.Sleep(waitTime + 80*time.Millisecond)
 
 		dirEntries, err = os.ReadDir(dir)
 
@@ -177,7 +177,7 @@ func TestDb_Put(t *testing.T) {
 		}
 
 		size := outInfo.Size()
-		if size  != size1 {
+		if size != size1 {
 			t.Errorf(
 				"Unexpected size of file after merge: got %v, expected %v",
 				size,
@@ -190,7 +190,7 @@ func TestDb_Put(t *testing.T) {
 		for _, pair := range pairs {
 			deleteTest(db, pair, t)
 		}
-		time.Sleep(waitTime + 80 * time.Millisecond)
+		time.Sleep(waitTime + 80*time.Millisecond)
 
 		outInfo, err = outFile.Stat()
 		if err != nil {
@@ -213,7 +213,7 @@ func TestDb_Put(t *testing.T) {
 		testWait := make(chan struct{})
 
 		testsLeft := parallelAmount
-		var testM sync.Mutex 
+		var testM sync.Mutex
 
 		for i := 0; i < parallelAmount; i++ {
 			go func() {

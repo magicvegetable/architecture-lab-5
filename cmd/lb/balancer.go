@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/magicvegetable/architecture-lab-4/httptools"
-	"github.com/magicvegetable/architecture-lab-4/signal"
+	"github.com/magicvegetable/architecture-lab-5/httptools"
+	"github.com/magicvegetable/architecture-lab-5/signal"
 )
 
 var (

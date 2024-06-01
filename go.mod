@@ -1,4 +1,4 @@
-module github.com/magicvegetable/architecture-lab-4
+module github.com/magicvegetable/architecture-lab-5
 
 go 1.22
 

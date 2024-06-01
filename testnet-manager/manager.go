@@ -1,6 +1,6 @@
 package main
 
-import . "github.com/magicvegetable/architecture-lab-4/integration"
+import . "github.com/magicvegetable/architecture-lab-5/integration"
 
 import "syscall"
 

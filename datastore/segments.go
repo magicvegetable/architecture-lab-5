@@ -1,21 +1,21 @@
 package datastore
 
 import (
-	"sync"
-	"io"
-	"fmt"
 	"bufio"
-	"os"
-	"encoding/binary"
 	"bytes"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"os"
+	"sync"
 	"time"
 )
 
 type Segment struct {
-	Out io.ReadWriteCloser
-	In io.ReadSeekCloser
-	Offset int64
-	Index hashIndex
+	Out     io.ReadWriteCloser
+	In      io.ReadSeekCloser
+	Offset  int64
+	Index   hashIndex
 	OutName string
 }
 
@@ -33,7 +33,7 @@ func (seg *Segment) Recover() error {
 	for err == nil {
 		var (
 			header, data []byte
-			n int
+			n            int
 		)
 		header, err = in.Peek(bufSize)
 		if err == io.EOF {
@@ -142,7 +142,7 @@ type OperationGetData struct {
 type OperationDeleteData OperationGetData
 
 type OperationPutData struct {
-	Key string
+	Key   string
 	Value string
 }
 
@@ -191,14 +191,14 @@ func (sgr *OperationGetResult) IsValid() (bool, error) {
 }
 
 type Operation struct {
-	Data OperationData
+	Data   OperationData
 	Result chan OperationResult
-	Type string
+	Type   string
 }
 
 type queueElement struct {
 	value *Operation
-	next *queueElement
+	next  *queueElement
 }
 
 type operationQueue struct {
@@ -242,7 +242,7 @@ func (q *operationQueue) Pull() *Operation {
 		q.blocked = make(chan struct{})
 		q.m.Unlock()
 
-		<- q.blocked
+		<-q.blocked
 		q.m.Lock()
 
 		if q.terminate {
@@ -260,9 +260,9 @@ type Handler interface {
 }
 
 type Loop struct {
-	queue operationQueue
+	queue      operationQueue
 	terminated chan struct{}
-	Handler Handler
+	Handler    Handler
 }
 
 func (l *Loop) Start() {
@@ -296,7 +296,7 @@ func (l *Loop) Terminate() {
 
 	l.queue.m.Unlock()
 
-	<- l.terminated
+	<-l.terminated
 }
 
 func (l *Loop) PostOperation(op *Operation) {
@@ -313,15 +313,15 @@ type CreateSegmentFn func() (*Segment, error)
 type GetSegmentsFn func() []*Segment
 
 type SegmentsHandler struct {
-	loop *Loop
+	loop             *Loop
 	stopTriggerMerge bool
 
 	SegmentStopWriteSize *int64
-	MergeWaitInterval time.Duration
-	ForceMerge bool
+	MergeWaitInterval    time.Duration
+	ForceMerge           bool
 
-	CreateSegment CreateSegmentFn
-	GetSegments GetSegmentsFn
+	CreateSegment  CreateSegmentFn
+	GetSegments    GetSegmentsFn
 	ExcludeSegment func(*Segment) error
 }
 
@@ -333,11 +333,11 @@ func NewSegmentsHandler(
 	es func(*Segment) error,
 ) *SegmentsHandler {
 	sh := &SegmentsHandler{
-		GetSegments: getSegFn,
-		CreateSegment: createSegFn,
+		GetSegments:          getSegFn,
+		CreateSegment:        createSegFn,
 		SegmentStopWriteSize: ssws,
-		MergeWaitInterval: mwi,
-		ExcludeSegment: es,
+		MergeWaitInterval:    mwi,
+		ExcludeSegment:       es,
 	}
 
 	sh.loop = &Loop{Handler: sh}
@@ -349,11 +349,12 @@ type OperationHandleFn func(OperationData) OperationResult
 
 func (sh *SegmentsHandler) currentSegment() (seg *Segment, err error) {
 	segments := sh.GetSegments()
-	if len(segments) == 0 {
+	segLen := len(segments)
+	if segLen == 0 {
 		return sh.CreateSegment()
 	}
 
-	seg = segments[len(segments) - 1]
+	seg = segments[segLen-1]
 
 	if seg.Offset >= *sh.SegmentStopWriteSize {
 		seg, err = sh.CreateSegment()
@@ -380,9 +381,9 @@ func (sh *SegmentsHandler) delete(op OperationData) OperationResult {
 	data := op.(*OperationDeleteData)
 
 	var (
-		val string
+		val  string
 		sval string
-		err error
+		err  error
 	)
 
 	key := data.Key
@@ -460,9 +461,8 @@ func (b *Buffer) GetReader() *Reader {
 	reader := bytes.NewReader(arr)
 	return &Reader{reader: reader}
 }
-func (b *Buffer) Read(p []byte) (n int, err error) { return b.buffer.Read(p) }
+func (b *Buffer) Read(p []byte) (n int, err error)  { return b.buffer.Read(p) }
 func (b *Buffer) Write(p []byte) (n int, err error) { return b.buffer.Write(p) }
-
 
 // TODO:
 // add buffer copy of segment, and try recover to previous state
@@ -482,12 +482,12 @@ func (sh *SegmentsHandler) merge(op OperationData) OperationResult {
 
 	for i := segLastI; i >= 1; i-- {
 		segHP := segs[i]
-		segLP := segs[i - 1]
+		segLP := segs[i-1]
 
 		buff := &Buffer{}
 
 		segM := &Segment{
-			Out: buff,
+			Out:   buff,
 			Index: make(hashIndex),
 		}
 
@@ -551,20 +551,20 @@ func (sh *SegmentsHandler) merge(op OperationData) OperationResult {
 	if sh.ForceMerge {
 		sh.ForceMerge = false
 	}
-	
+
 	return nil
 }
 
 func (sh *SegmentsHandler) OperationHandleFn(Type string) (fn OperationHandleFn, ok bool) {
 	handleFns := map[string]OperationHandleFn{
-		"Get": sh.get,
-		"Put": sh.put,
-		"Merge": sh.merge,
+		"Get":    sh.get,
+		"Put":    sh.put,
+		"Merge":  sh.merge,
 		"Delete": sh.delete,
 	}
 
 	fn, ok = handleFns[Type]
-	return 
+	return
 }
 
 func (sh *SegmentsHandler) Handle(op *Operation) {
@@ -593,13 +593,13 @@ func (sh *SegmentsHandler) Handle(op *Operation) {
 
 func (sh *SegmentsHandler) Get(key string) (value string, err error) {
 	op := &Operation{
-		Data: &OperationGetData{Key: key},
+		Data:   &OperationGetData{Key: key},
 		Result: make(chan OperationResult),
-		Type: "Get",
+		Type:   "Get",
 	}
 	sh.loop.PostOperation(op)
 
-	res := <- op.Result
+	res := <-op.Result
 
 	resA := res.(*OperationGetResult)
 	return resA.Val, resA.Err
@@ -607,13 +607,13 @@ func (sh *SegmentsHandler) Get(key string) (value string, err error) {
 
 func (sh *SegmentsHandler) Put(key, value string) error {
 	op := &Operation{
-		Data: &OperationPutData{Key: key, Value: value},
+		Data:   &OperationPutData{Key: key, Value: value},
 		Result: make(chan OperationResult),
-		Type: "Put",
+		Type:   "Put",
 	}
 	sh.loop.PostOperation(op)
 
-	res := <- op.Result
+	res := <-op.Result
 
 	resA := res.(*OperationPutResult)
 	return resA.Err
@@ -621,13 +621,13 @@ func (sh *SegmentsHandler) Put(key, value string) error {
 
 func (sh *SegmentsHandler) Delete(key string) (string, error) {
 	op := &Operation{
-		Data: &OperationDeleteData{Key: key},
+		Data:   &OperationDeleteData{Key: key},
 		Result: make(chan OperationResult),
-		Type: "Delete",
+		Type:   "Delete",
 	}
 	sh.loop.PostOperation(op)
 
-	res := <- op.Result
+	res := <-op.Result
 
 	resA := res.(*OperationDeleteResult)
 
@@ -637,12 +637,12 @@ func (sh *SegmentsHandler) Delete(key string) (string, error) {
 func (sh *SegmentsHandler) Sync() {
 	op := &Operation{
 		Result: make(chan OperationResult),
-		Type: "Merge",
+		Type:   "Merge",
 	}
 
 	sh.loop.PostOperation(op)
 
-	res := <- op.Result
+	res := <-op.Result
 
 	if res != nil {
 		fmt.Println("expected nil...")
@@ -676,4 +676,3 @@ func (sh *SegmentsHandler) TriggerMerge() {
 func (sh *SegmentsHandler) StopTriggerMerge() {
 	sh.stopTriggerMerge = true
 }
-

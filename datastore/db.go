@@ -6,64 +6,36 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"bytes"
-	"time"
 	"slices"
+	"strconv"
+	"strings"
+	"time"
 )
 
 const (
-	outFileName = "current-data"
-	headerSize = 4
-	SegmentFilePerm = os.FileMode(0o600)
+	outFileName              = "current-data"
+	headerSize               = 4
+	SegmentFilePerm          = os.FileMode(0o600)
 	DefaultMergeWaitInterval = time.Second
-	DefaultSegmentSizeLimit = 500
+	DefaultSegmentSizeLimit  = 500
 )
-
-type CustomReadWriteCloser struct {
-	Buffer bytes.Buffer
-}
-
-func (crwc *CustomReadWriteCloser) Write(p []byte) (n int, err error) {
-	return crwc.Buffer.Write(p)
-}
-
-func (crwc *CustomReadWriteCloser) Read(p []byte) (n int, err error) {
-	return crwc.Buffer.Read(p)
-}
-
-func (crwc *CustomReadWriteCloser) Close() (err error) { return }
-
-func FileOnLimit(name string, lim int64) (bool, error) {
-	if name == "" {
-		err := fmt.Errorf("no given file name")
-		return false, err
-	}
-
-	stat, err := os.Stat(name)
-
-	if err != nil {
-		return false, err
-	}
-
-	return stat.Size() >= lim, nil
-}
 
 var ErrNotFound = fmt.Errorf("record does not exist")
 
 type hashIndex map[string]int64
 
 type Db struct {
-	Segments []*Segment
-	SegmentsDir string
-	SegmentSizeLimit int64
-	SegmentsHandler *SegmentsHandler
+	Segments          []*Segment
+	SegmentsDir       string
+	SegmentSizeLimit  int64
+	SegmentsHandler   *SegmentsHandler
 	MergeWaitInterval time.Duration
 }
 
 func NewDbFull(dir string, mwi time.Duration, ssl int64) (*Db, error) {
 	db := &Db{
-		SegmentsDir: dir,
-		SegmentSizeLimit: ssl,
+		SegmentsDir:       dir,
+		SegmentSizeLimit:  ssl,
 		MergeWaitInterval: mwi,
 	}
 
@@ -89,9 +61,42 @@ func NewDb(dir string) (*Db, error) {
 	return NewDbFull(dir, DefaultMergeWaitInterval, DefaultSegmentSizeLimit)
 }
 
+func (db *Db) FreeSegmentOutName() (string, error) {
+	dirEntries, err := os.ReadDir(db.SegmentsDir)
+	if err != nil {
+		return "", err
+	}
+
+	biggestI := 0
+	for _, entry := range dirEntries {
+		name := entry.Name()
+		if !db.IsSegmentFileName(name) {
+			continue
+		}
+
+		i := strings.LastIndex(name, "-")
+		num, _ := strconv.Atoi(name[i+1:])
+
+		if biggestI <= num {
+			biggestI = num + 1
+		}
+	}
+
+	segOutName := fmt.Sprintf(
+		"%v-%v",
+		filepath.Join(db.SegmentsDir, outFileName),
+		biggestI,
+	)
+
+	return segOutName, nil
+}
+
 func (db *Db) NewSegment() (*Segment, error) {
-	index := len(db.Segments)
-	name := fmt.Sprintf("%v-%v", filepath.Join(db.SegmentsDir, outFileName), index)
+	name, err := db.FreeSegmentOutName()
+
+	if err != nil {
+		return nil, err
+	}
 
 	f, err := os.OpenFile(name, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
@@ -104,9 +109,9 @@ func (db *Db) NewSegment() (*Segment, error) {
 	}
 
 	seg := &Segment{
-		Out: f,
-		In: fr,
-		Index: make(hashIndex),
+		Out:     f,
+		In:      fr,
+		Index:   make(hashIndex),
 		OutName: f.Name(),
 	}
 
@@ -119,25 +124,6 @@ func (db *Db) NewSegment() (*Segment, error) {
 	db.Segments = append(db.Segments, seg)
 
 	return seg, nil
-}
-
-func (db *Db) GetSegment() (*Segment, error) {
-	if len(db.Segments) == 0 {
-		return db.NewSegment()
-	}
-
-	last := db.Segments[len(db.Segments) - 1]
-
-	OnLimit, err := FileOnLimit(last.OutName, db.SegmentSizeLimit)
-	if err != nil {
-		return nil, err
-	}
-
-	if !OnLimit {
-		return last, nil
-	}
-
-	return db.NewSegment()
 }
 
 func (db *Db) IsSegmentFileName(name string) bool {
@@ -172,9 +158,9 @@ func (db *Db) Recover() error {
 		}
 
 		seg := &Segment{
-			Out: segF,
-			In: segRF,
-			Index: make(hashIndex),
+			Out:     segF,
+			In:      segRF,
+			Index:   make(hashIndex),
 			OutName: segF.Name(),
 		}
 
@@ -223,7 +209,7 @@ func (db *Db) ExcludeSegment(seg *Segment) error {
 		return nil
 	}
 
-	after := db.Segments[i + 1:]
+	after := db.Segments[i+1:]
 	db.Segments = append(db.Segments[:i], after...)
 
 	return os.Remove(seg.OutName)
